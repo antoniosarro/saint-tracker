@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Backend",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${cwd}/backend/cmd/main.go",
+            "envFile": "${cwd}/backend/.env",
+        }
+    ]
+}

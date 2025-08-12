@@ -16,13 +16,18 @@
         pkgs = import nixpkgs {
           inherit system;
         };
+        go-migrate-sqlite3 = pkgs.go-migrate.overrideAttrs(oldAttrs: {
+          tags = ["sqlite3"];
+        });
       in
       {
         devShells.default = pkgs.mkShell {
+          hardeningDisable = [ "fortify" ]; # Needed to debug Golang code
           packages = with pkgs; [
             # --- Go Backend Dependencies ---
             go # The Go compiler and toolchain
             gopls # The official Go language server for IDE integration
+            go-migrate-sqlite3 # Database migrations. CLI and Golang library.
 
             # --- Frontend Dependencies ---
             nodejs_24 # A recent LTS version of Node.js
