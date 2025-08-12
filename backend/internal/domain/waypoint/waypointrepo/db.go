@@ -42,14 +42,29 @@ func (dbrepo *repository) GetList(ctx context.Context) ([]*waypoint.WaypointDTO,
 	return dtos, nil
 }
 
-func (dbrepo *repository) Create(ctx context.Context, w *waypoint.WaypointDTO) error {
+func (dbrepo *repository) CreateBatch(ctx context.Context, waypoints []*waypoint.WaypointDTO) error {
+	if len(waypoints) == 0 {
+		return nil
+	}
+
+	tx, err := dbrepo.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	query := `
 		INSERT INTO waypoint
-			(id, latitude, longitude, created_at, updated_at)
+			(id, latitude, longitude, speed, created_at, updated_at)
 		VALUES
-			(:id, :latitude, :longitude, :created_at, :updated_at)
+			(:id, :latitude, :longitude, :speed, :created_at, :updated_at)
 	`
 
-	_, err := dbrepo.NamedExecContext(ctx, query, intoModel(w))
-	return err
+	for _, w := range waypoints {
+		if _, err := tx.NamedExecContext(ctx, query, intoModel(w)); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

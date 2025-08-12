@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS waypoint (
     id TEXT PRIMARY KEY,
     latitude REAL,
     longitude REAL,
+    speed INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

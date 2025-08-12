@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/antoniosarro/saint-tracker/backend/config"
 	"github.com/antoniosarro/saint-tracker/backend/internal/server"
@@ -33,18 +31,18 @@ func main() {
 func run(ctx context.Context, conf *config.Config, log *logger.Log) error {
 	log.Infof("starting server...")
 
-	db, err := db.Init(conf)
+	database, err := db.Init(conf)
 	if err != nil {
 		log.Fatalf("database connection error, %v", err)
 	}
-	defer db.Close()
-	log.Infof("database connected: %+v", db.Stats())
+	defer database.Close()
+	log.Infof("database connected: %+v", database.Stats())
 
 	shutdownCh := make(chan os.Signal, 1)
 	signal.Notify(shutdownCh, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	server := server.Init(&server.Options{
-		DB:        db,
+	appServer := server.Init(&server.Options{
+		DB:        database,
 		Log:       log,
 		ServerCfg: conf,
 	})
@@ -52,14 +50,11 @@ func run(ctx context.Context, conf *config.Config, log *logger.Log) error {
 	serverErrCh := make(chan error, 1)
 
 	go func() {
-		s := &http.Server{
-			Addr:         conf.Server.Host + ":" + conf.Server.Port,
-			ReadTimeout:  time.Second * conf.Server.ReadTimeout,
-			WriteTimeout: time.Second * conf.Server.WriteTimeout,
-		}
+		addr := conf.Server.Host + ":" + conf.Server.Port
+		log.Infof("server starting on %s (with WebSocket support)", addr)
 
-		log.Infof("server started on %s:%s", conf.Server.Host, conf.Server.Port)
-		serverErrCh <- server.StartServer(s)
+		// Start the Echo server directly
+		serverErrCh <- appServer.Echo.Start(addr)
 	}()
 
 	select {
@@ -70,9 +65,9 @@ func run(ctx context.Context, conf *config.Config, log *logger.Log) error {
 		ctx, cancel := context.WithTimeout(ctx, conf.Server.CtxDefaultTimeout)
 		defer cancel()
 
-		if err := server.Shutdown(ctx); err != nil {
-			server.Close()
-			return fmt.Errorf("gracefull shutdown failed, server forced to shutdown :%v", err)
+		if err := appServer.Shutdown(ctx); err != nil {
+			appServer.Close()
+			return fmt.Errorf("graceful shutdown failed, server forced to shutdown: %v", err)
 		}
 	case err := <-serverErrCh:
 		log.Errorf("server error, %v", err)

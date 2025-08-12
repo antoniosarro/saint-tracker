@@ -14,5 +14,5 @@ func SetDeviceID(ctx context.Context, deviceID string) context.Context {
 }
 
 func SetAccessToken(ctx context.Context, token string) context.Context {
-	return context.WithValue(ctx, deviceKey, token)
+	return context.WithValue(ctx, tokenKey, token)
 }

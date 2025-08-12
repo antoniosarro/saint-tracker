@@ -39,7 +39,14 @@ func (w *Web) EnableCORSMiddleware(origins []string) {
 			http.MethodGet,
 			http.MethodPost,
 		},
-		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type"},
+		// Add the custom headers your auth middleware expects
+		AllowHeaders: []string{
+			"Accept",
+			"Authorization",
+			"Content-Type",
+			"X-Header-Token",  // Required by auth middleware
+			"X-Header-Device", // Required by auth middleware
+		},
 		ExposeHeaders:    []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,

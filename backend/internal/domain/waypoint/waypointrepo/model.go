@@ -11,6 +11,7 @@ type Model struct {
 	ID        uuid.UUID `db:"id"`
 	Latitude  float32   `db:"latitude"`
 	Longitude float32   `db:"longitude"`
+	Speed     int       `db:"speed"`
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`
 }
@@ -20,6 +21,9 @@ func (m *Model) intoDTO() *waypoint.WaypointDTO {
 		ID:        m.ID,
 		Latitude:  m.Latitude,
 		Longitude: m.Longitude,
+		Speed:     m.Speed,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
 	}
 }
 
@@ -29,5 +33,6 @@ func intoModel(w *waypoint.WaypointDTO) *Model {
 		Latitude:  w.Latitude,
 		Longitude: w.Longitude,
 		CreatedAt: w.CreatedAt,
+		Speed:     w.Speed,
 	}
 }

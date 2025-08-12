@@ -41,7 +41,7 @@ func (dc *DeviceCache) Get(deviceID string) (*DeviceInfo, bool) {
 		return nil, false
 	}
 
-	return info, false
+	return info, true
 }
 
 func (dc *DeviceCache) Set(deviceID string, token string) {
