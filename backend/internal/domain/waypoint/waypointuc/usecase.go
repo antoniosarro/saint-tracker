@@ -58,6 +58,7 @@ func (uc *UseCase) Register(ctx context.Context, wcs []*waypoint.NewWaypointDTO)
 	}
 
 	if err := uc.dbRepo.CreateBatch(ctx, waypoints); err != nil {
+		fmt.Println(err)
 		return nil, httperrors.New(httperrors.Internal, "Error inserting waypoints")
 	}
 
