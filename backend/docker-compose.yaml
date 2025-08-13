@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  saint-tracker-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: saint-tracker-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Server configuration
+      - APP_ENV=production
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_READTIMEOUT=30s
+      - SERVER_WRITETIMEOUT=30s
+      - SERVER_CTXDEFAULTTIMEOUT=60s
+      - SERVER_ALLOWEDORIGINS=*
+      
+      # Database configuration
+      - DB_DRIVER=sqlite3
+      - DB_FILENAME=/app/data/database.db
+      
+      # Logger configuration
+      - LOGGER_LEVEL=info
+      - LOGGER_FILE=/app/logs/app.log
+      - LOGGER_FILE_MAXSIZE=10
+      - LOGGER_FILE_MAXBACKUPS=3
+      - LOGGER_FILE_MAXAGE=30
+      - LOGGER_FILE_COMPRESS=true
+    volumes:
+      # Mount database directory for persistence and backups
+      - ./data:/app/data
+      # Mount logs directory
+      - ./logs:/app/logs
+    networks:
+      - saint-tracker-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  saint-tracker-network:
+    driver: bridge
+
+volumes:
+  saint-tracker-data:
+    driver: local
+  saint-tracker-logs:
+    driver: local

@@ -21,3 +21,5 @@ CREATE TRIGGER IF NOT EXISTS update_esp32_timestamp
 BEGIN
     UPDATE esp32_devices SET update_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
+
+INSERT INTO esp32_devices ("serial_number", "token") VALUES ('esptest', 'DRDAfZO4HIeyAdgOqfZk7CYGudfZS4Yz1SaFKxypUXXUSljlcJvqkTVzmXk9DvMg');
