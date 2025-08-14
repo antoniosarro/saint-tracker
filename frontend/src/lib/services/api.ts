@@ -1,6 +1,6 @@
 import type { WaypointDTO } from '$types/api';
 
-const API_BASE_URL = 'https://backend.giva.lol/api/v1'; // Adjust based on your backend URL
+const API_BASE_URL = 'https://backend.saintracker.it/api/v1'; // Adjust based on your backend URL
 
 class ApiService {
 	private baseUrl: string;

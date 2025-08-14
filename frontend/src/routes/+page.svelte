@@ -38,6 +38,11 @@
 	let stopMarkers: Map<number, Marker> = new Map();
 	let stopCircles: Map<number, Circle> = new Map();
 	let L: typeof import('leaflet');
+	let LRM: any = null;
+	let routingControl: any = null;
+
+	// Add a flag to track if routing is loaded
+	let routingLoaded = false;
 
 	// Track current container and screen size
 	let currentContainer: HTMLDivElement | null = null;
@@ -85,20 +90,57 @@
 	});
 
 	onMount(async () => {
+		// Only run in browser
+		if (!browser) return;
+
 		// Load Leaflet
 		L = await import('leaflet');
 		await import('leaflet/dist/leaflet.css');
 
+		// Load leaflet-routing-machine dynamically
+		try {
+			// Import the module - it attaches to window.L
+			await import('leaflet-routing-machine');
+			await import('leaflet-routing-machine/dist/leaflet-routing-machine.css');
+
+			// Need to give it a moment to attach to L
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			// Check if routing was attached to the global L object
+			// leaflet-routing-machine attaches to window.L, not the imported L
+			if (browser && window.L && (window.L as any).Routing && (window.L as any).Routing.control) {
+				LRM = (window.L as any).Routing;
+				routingLoaded = true;
+				console.log('Leaflet routing loaded successfully via window.L');
+			} else if (L && (L as any).Routing && (L as any).Routing.control) {
+				LRM = (L as any).Routing;
+				routingLoaded = true;
+				console.log('Leaflet routing loaded successfully via imported L');
+			} else {
+				console.warn('L.Routing not found after import - routing will not be available');
+				console.log('window.L:', window.L);
+				console.log('imported L:', L);
+				console.log(
+					'window.L.Routing:',
+					window.L ? (window.L as any).Routing : 'window.L not found'
+				);
+				routingLoaded = false;
+			}
+		} catch (error) {
+			console.warn('Failed to load leaflet-routing-machine:', error);
+			routingLoaded = false;
+		}
+
 		// Determine initial container based on screen size
 		checkScreenSize();
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		// Initialize map in the appropriate container
 		initializeMap();
 
 		// Set up resize listener
-		if (browser) {
-			window.addEventListener('resize', handleResize);
-		}
+		window.addEventListener('resize', handleResize);
 
 		// Load initial waypoints from API
 		try {
@@ -117,7 +159,7 @@
 	});
 
 	onDestroy(() => {
-		if (map) {
+		if (browser && map) {
 			map.remove();
 		}
 		if (browser) {
@@ -137,9 +179,16 @@
 	}
 
 	function initializeMap() {
+		if (!browser) return;
+
+		// Use window.L if available (for routing compatibility), otherwise use imported L
+		const leaflet = window.L && window.L.map ? window.L : L;
+
+		if (!leaflet) return;
+
 		const targetContainer = isMobile ? mobileMapContainer : desktopMapContainer;
 
-		if (!targetContainer || !L) return;
+		if (!targetContainer) return;
 
 		// If map already exists, move it to the new container
 		if (map && currentContainer !== targetContainer) {
@@ -150,21 +199,28 @@
 		// Create new map if it doesn't exist
 		if (!map) {
 			currentContainer = targetContainer;
-			map = L.map(targetContainer, {
+			map = leaflet.map(targetContainer, {
 				center: mfCenter as LatLngTuple,
 				zoom: 16,
 				zoomControl: false,
 				attributionControl: false
 			});
 
-			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-				attribution: '© OpenStreetMap contributors'
-			}).addTo(map);
+			leaflet
+				.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+					attribution: '© OpenStreetMap contributors'
+				})
+				.addTo(map);
 		}
 	}
 
 	function moveMapToContainer(newContainer: HTMLDivElement) {
-		if (!map || !newContainer || currentContainer === newContainer) return;
+		if (!browser || !map || !newContainer || currentContainer === newContainer) return;
+
+		// Use window.L if available, otherwise use imported L
+		const leaflet = window.L && window.L.map ? window.L : L;
+
+		if (!leaflet) return;
 
 		try {
 			// Get current map state
@@ -176,16 +232,18 @@
 
 			// Create new map in the new container
 			currentContainer = newContainer;
-			map = L.map(newContainer, {
+			map = leaflet.map(newContainer, {
 				center: [center.lat, center.lng],
 				zoom: zoom,
 				zoomControl: false,
 				attributionControl: false
 			});
 
-			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-				attribution: '© OpenStreetMap contributors'
-			}).addTo(map);
+			leaflet
+				.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+					attribution: '© OpenStreetMap contributors'
+				})
+				.addTo(map);
 
 			// Restore map data
 			setTimeout(() => {
@@ -200,13 +258,14 @@
 			if (map) {
 				map.remove();
 			}
-			map = null;
 			currentContainer = null;
 			initializeMap();
 		}
 	}
 
 	function handleResize() {
+		if (!browser) return;
+
 		const screenSizeChanged = checkScreenSize();
 
 		if (screenSizeChanged && map) {
@@ -238,13 +297,13 @@
 	}
 
 	// React to GPS data changes
-	$: if (gpsData.length > 0) {
+	$: if (browser && gpsData.length > 0) {
 		processGpsData();
 		updateMap();
 	}
 
 	// React to stops changes
-	$: if (stops.length > 0 && map && L) {
+	$: if (browser && stops.length > 0 && map && L) {
 		updateStopMarkers();
 	}
 
@@ -254,7 +313,7 @@
 	}
 
 	// React to container changes - ensure map is in the right place
-	$: if (mobileMapContainer && desktopMapContainer && map) {
+	$: if (browser && mobileMapContainer && desktopMapContainer && map) {
 		const targetContainer = isMobile ? mobileMapContainer : desktopMapContainer;
 		if (currentContainer !== targetContainer) {
 			moveMapToContainer(targetContainer);
@@ -351,15 +410,20 @@
 		currentPosition = sortedData[sortedData.length - 1];
 	}
 
+	// Updated updateMap function with routing
 	function updateMap() {
-		if (!map || gpsData.length === 0 || !L) return;
+		if (!browser || !map || gpsData.length === 0 || !L) return;
 
-		// Clear existing markers and polylines
+		// Clear existing markers and routing
 		if (currentPositionMarker) {
 			map.removeLayer(currentPositionMarker);
 		}
 		if (routePolyline) {
 			map.removeLayer(routePolyline);
+		}
+		if (routingControl) {
+			map.removeControl(routingControl);
+			routingControl = null;
 		}
 
 		// Sort data by timestamp
@@ -367,35 +431,214 @@
 			(a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
 		);
 
-		// Create route polyline
-		const routeCoords = smoothGpsPointsWeighted(sortedData).map((point) => [
+		if (sortedData.length < 2) {
+			// If less than 2 points, just show the position marker
+			if (sortedData.length === 1) {
+				currentPosition = sortedData[0];
+				addCurrentPositionMarker();
+			}
+			return;
+		}
+
+		createRoutingPathWithProxy(sortedData);
+
+		// Add current position marker
+		currentPosition = sortedData[sortedData.length - 1];
+		addCurrentPositionMarker();
+	}
+
+	function addCurrentPositionMarker() {
+		if (!browser || !currentPosition || !map) return;
+
+		// Use window.L if available, otherwise use imported L
+		const leaflet = window.L && window.L.divIcon ? window.L : L;
+		if (!leaflet) return;
+
+		const currentIcon: DivIcon = leaflet.divIcon({
+			className: 'current-position-marker',
+			html: `<div class="w-5 h-5 z-20 bg-red-500 border-2 border-white rounded-full shadow-lg animate-pulse"></div>`,
+			iconSize: [20, 20],
+			iconAnchor: [10, 10]
+		});
+
+		currentPositionMarker = leaflet
+			.marker([currentPosition.latitude, currentPosition.longitude], {
+				icon: currentIcon
+			})
+			.addTo(map);
+	}
+
+	async function createRoutingPathWithProxy(sortedData: Waypoint[]) {
+		if (!browser || !map || !L) {
+			console.log('Prerequisites not met for routing');
+			createSimplePolyline(sortedData);
+			return;
+		}
+
+		// Use window.L if available, otherwise use imported L
+		const leaflet = window.L && window.L.latLng ? window.L : L;
+		if (!leaflet) {
+			console.log('Leaflet not available, falling back to simple polyline');
+			createSimplePolyline(sortedData);
+			return;
+		}
+
+		// Validate and filter waypoints
+		const validData = sortedData.filter((point) => {
+			const isValid =
+				point.latitude !== null &&
+				point.latitude !== undefined &&
+				point.longitude !== null &&
+				point.longitude !== undefined &&
+				!isNaN(point.latitude) &&
+				!isNaN(point.longitude) &&
+				Math.abs(point.latitude) <= 90 &&
+				Math.abs(point.longitude) <= 180;
+
+			if (!isValid) {
+				console.warn('Invalid waypoint filtered out:', point);
+			}
+			return isValid;
+		});
+
+		if (validData.length < 2) {
+			console.log('Not enough valid waypoints for routing');
+			if (validData.length > 0) {
+				createSimplePolyline(validData);
+			}
+			return;
+		}
+
+		// For routing, use a subset of points to optimize performance
+		const maxWaypoints = Math.round(validData.length / 3); // Increased since server handles batching
+		let waypointsForRouting: [number, number][] = [];
+
+		if (validData.length <= maxWaypoints) {
+			waypointsForRouting = validData.map((point) => [point.latitude, point.longitude]);
+		} else {
+			// Always include first point
+			waypointsForRouting.push([validData[0].latitude, validData[0].longitude]);
+
+			// Add intermediate points
+			const step = Math.floor((validData.length - 1) / (maxWaypoints - 2));
+			for (let i = step; i < validData.length - 1; i += step) {
+				if (waypointsForRouting.length < maxWaypoints - 1) {
+					waypointsForRouting.push([validData[i].latitude, validData[i].longitude]);
+				}
+			}
+
+			// Always include last point
+			const lastPoint = validData[validData.length - 1];
+			waypointsForRouting.push([lastPoint.latitude, lastPoint.longitude]);
+
+			console.log(
+				`Using ${waypointsForRouting.length} waypoints for routing out of ${validData.length} total points`
+			);
+		}
+
+		try {
+			// Call our caching proxy instead of OSRM directly
+			const response = await fetch('/api/routing', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					waypoints: waypointsForRouting
+				})
+			});
+
+			if (!response.ok) {
+				throw new Error(`Proxy API error: ${response.status}`);
+			}
+
+			const data = await response.json();
+
+			if (!data.success || !data.route) {
+				throw new Error('Invalid response from routing proxy');
+			}
+
+			// Create polyline from the route geometry
+			const route = data.route;
+			if (route.routes && route.routes[0] && route.routes[0].geometry) {
+				const geometry = route.routes[0].geometry;
+
+				// Convert coordinates from [lng, lat] to [lat, lng] for Leaflet
+				const routeCoords = geometry.coordinates.map((coord: [number, number]) => [
+					coord[1],
+					coord[0]
+				]);
+
+				routePolyline = leaflet
+					.polyline(routeCoords, {
+						color: '#3b82f6',
+						weight: 4,
+						opacity: 0.8
+					})
+					.addTo(map);
+
+				try {
+					const bounds = routePolyline.getBounds();
+					if (bounds.isValid()) {
+						map.fitBounds(bounds, { padding: [20, 20] });
+					}
+				} catch (error) {
+					console.warn('Error fitting bounds:', error);
+				}
+
+				console.log('Route created successfully from proxy cache');
+			} else {
+				throw new Error('Invalid route geometry in response');
+			}
+		} catch (error) {
+			console.warn('Failed to get route from proxy, falling back to simple polyline:', error);
+			createSimplePolyline(validData);
+		}
+	}
+	function createSimplePolyline(sortedData: Waypoint[]) {
+		// Use window.L if available, otherwise use imported L
+		const leaflet = window.L && window.L.polyline ? window.L : L;
+		if (!leaflet) return;
+
+		// Validate waypoints before creating polyline
+		const validData = sortedData.filter((point) => {
+			return (
+				point.latitude !== null &&
+				point.latitude !== undefined &&
+				point.longitude !== null &&
+				point.longitude !== undefined &&
+				!isNaN(point.latitude) &&
+				!isNaN(point.longitude) &&
+				Math.abs(point.latitude) <= 90 &&
+				Math.abs(point.longitude) <= 180
+			);
+		});
+
+		if (validData.length < 2) {
+			console.warn('Not enough valid points for polyline');
+			return;
+		}
+
+		const routeCoords = smoothGpsPointsWeighted(validData).map((point) => [
 			point.latitude,
 			point.longitude
 		]) as LatLngExpression[];
 
-		routePolyline = L.polyline(routeCoords, {
-			color: '#3b82f6',
-			weight: 4,
-			opacity: 0.8
-		}).addTo(map);
+		routePolyline = leaflet
+			.polyline(routeCoords, {
+				color: '#3b82f6',
+				weight: 4,
+				opacity: 0.8
+			})
+			.addTo(map);
 
-		// Add current position marker
-		if (currentPosition) {
-			const currentIcon: DivIcon = L.divIcon({
-				className: 'current-position-marker',
-				html: `<div class="w-5 h-5 z-20 bg-red-500 border-2 border-white rounded-full shadow-lg animate-pulse"></div>`,
-				iconSize: [20, 20],
-				iconAnchor: [10, 10]
-			});
-
-			currentPositionMarker = L.marker([currentPosition.latitude, currentPosition.longitude], {
-				icon: currentIcon
-			}).addTo(map);
-		}
-
-		// Fit map to show all points
-		if (routeCoords.length > 0) {
-			map.fitBounds(routePolyline.getBounds(), { padding: [20, 20] });
+		try {
+			const bounds = routePolyline.getBounds();
+			if (bounds.isValid()) {
+				map.fitBounds(bounds, { padding: [20, 20] });
+			}
+		} catch (error) {
+			console.warn('Error fitting bounds for polyline:', error);
 		}
 	}
 
@@ -582,7 +825,6 @@
 		}
 	}
 </script>
-
 
 <svelte:head>
 	<title>Saint Tracker</title>

@@ -2,7 +2,7 @@
  import { Heart, Mail, Github, Linkedin } from 'lucide-svelte';
  
  // Version information
- const version = '1.0.2'; // You can update this or import from package.json
+ const version = '1.1.0'; // You can update this or import from package.json
  
  const currentYear = new Date().getFullYear();
  const quickLinks = [
