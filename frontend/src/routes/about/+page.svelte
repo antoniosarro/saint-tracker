@@ -16,7 +16,7 @@
 			name: 'Antonio Sarro',
 			role: 'Full Stack Developer',
 			bio: "FullStack Developer di 25 anni. Ho sempre avuto una forte passione e predisposizione  per l'hardware e l'informatica fin da bambino, che mi ha sempre spinto ad imparare e approfondire questo campo. Essendo una persona molto curiosa che vuole sempre scoprire qualcosa di nuovo, mi piace studiare e comprendere nuove tecnologie per progetti personali o futuri.",
-			avatar: 'antonio.jpg',
+			avatar: 'antonio.png',
 			location: 'Italia',
 			social: {
 				github: 'https://github.com/antoniosarro',
