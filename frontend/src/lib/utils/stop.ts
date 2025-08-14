@@ -5,8 +5,8 @@ import { calculateDistance } from '$utils/map';
 // Default configuration
 export const DEFAULT_STOP_CONFIG: StopDetectionConfig = {
 	defaultRadius: 25, // 25 meters
-	minStopDuration: 45, // 45 seconds
-	exitRadius: 50 // 50 meters
+	minStopDuration: 30, // 30 seconds
+	exitRadius: 40 // 40 meters
 };
 
 export class StopTracker {
