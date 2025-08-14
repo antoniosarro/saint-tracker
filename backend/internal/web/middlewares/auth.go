@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"fmt"
+
 	"github.com/antoniosarro/saint-tracker/backend/internal/sdk/httperrors"
 	"github.com/antoniosarro/saint-tracker/backend/internal/web/webcontext"
 	"github.com/labstack/echo/v4"
@@ -38,6 +40,7 @@ func (mid *Middleware) Authenticated(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 
 			if err := row.StructScan(&device); err != nil {
+				fmt.Println(err)
 				e := httperrors.New(httperrors.Unauthenticated, "esp32 device not valid")
 				e.AddDetail("esp32 device not valid")
 				return e

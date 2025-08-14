@@ -28,6 +28,10 @@ func Init(conf *config.Config) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	db, err = sqlx.Connect(conf.Database.Driver, conf.Database.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
 	return db, nil
 }
 

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"github.com/antoniosarro/saint-tracker/backend/internal/domain/waypoint/waypointrepo"
 	"github.com/antoniosarro/saint-tracker/backend/internal/domain/waypoint/waypointuc"
 	"github.com/antoniosarro/saint-tracker/backend/internal/domain/waypoint/waypointweb"
@@ -10,7 +12,23 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var startTime = time.Now()
+
 func router(w *web.Web, cfg *Options, hub *websocket.Hub) {
+	// Backend details endpoint on root path
+	w.Echo.GET("/", func(c echo.Context) error {
+
+		backendDetails := map[string]interface{}{
+			"service":     "saint-tracker-backend",
+			"version":     "1.0.0",
+			"started_at":  startTime.Format(time.RFC3339),
+			"environment": cfg.ServerCfg.App,
+			"timestamp":   time.Now().Format(time.RFC3339),
+		}
+
+		return c.JSON(200, backendDetails)
+	})
+
 	// Add a simple health check route for testing
 	w.Echo.GET("/health", func(c echo.Context) error {
 		return c.JSON(200, map[string]string{"status": "ok"})

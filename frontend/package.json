@@ -42,6 +42,7 @@
 	},
 	"dependencies": {
 		"@sveltejs/adapter-node": "^5.2.14",
-		"leaflet": "^1.9.4"
+		"leaflet": "^1.9.4",
+		"lucide-svelte": "^0.539.0"
 	}
 }

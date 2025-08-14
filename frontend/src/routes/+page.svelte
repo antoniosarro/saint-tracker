@@ -19,7 +19,8 @@
 
 	export let deviceInfo = {
 		id: 'ESP32-Alpha',
-		saint: "Sant\'Antonio",
+		saint: "Sant\'Antonio per le campagne",
+		saintSub: "Giorno 1",
 		location: 'Montefalcione',
 		status: 'Online',
 		lastUpdate: '2 min. fa'
@@ -345,7 +346,7 @@
 											<div class="font-semibold text-orange-700">Saltata</div>
 										`
 										: stop.startTime
-											? `🟡 In corso...`
+											? `In corso...`
 											: stop.isOngoing
 												? `Prossima fermata`
 												: 'In attesa'
@@ -469,14 +470,19 @@
 	}
 </script>
 
+<svelte:head>
+	<title>Saint Tracker</title>
+</svelte:head>
+
 <!-- Mobile/Desktop Responsive Container -->
 <div bind:this={scrollContainer} class="h-full overflow-y-auto md:overflow-hidden">
 	<div class="flex flex-col md:h-full md:flex-row">
-		<!-- Panel - Top on mobile, Left on desktop -->
-		<div class="w-full flex-shrink-0 bg-gray-50 p-4 md:mr-4 md:flex md:h-full md:w-72 md:flex-col">
+		<!-- Left Panel - Same on mobile, Left column on desktop -->
+		<div class="w-full flex-shrink-0 bg-gray-50 p-4 md:mr-4 md:flex md:h-full md:w-80 md:flex-col">
 			<!-- Header Card -->
 			<div class="mb-4 rounded-xl bg-white p-4 shadow-sm">
-				<h1 class="text-xl font-semibold text-gray-900">{deviceInfo.saint}</h1>
+				<h1 class="text-lg font-semibold text-gray-900">{deviceInfo.saint}</h1>
+				<h2 class="text-base text-gray-900">{deviceInfo.saintSub}</h2>
 			</div>
 
 			<!-- Device Information Card -->
@@ -534,7 +540,7 @@
 			{/if}
 
 			<!-- Stops Progress Card -->
-			<div class="mb-4 rounded-xl bg-white p-4 shadow-sm">
+			<div class="mb-4 rounded-xl bg-white p-4 shadow-sm md:mb-4">
 				<div class="mb-3 flex items-center justify-between">
 					<h2 class="text-lg font-semibold text-gray-900">Progresso</h2>
 				</div>
@@ -662,10 +668,33 @@
 				</div>
 			</div>
 
-			<!-- Stops Section Card -->
-			<div class="mb-4 flex min-h-0 flex-1 flex-col rounded-xl bg-white p-4 shadow-sm md:flex">
+			<!-- Trip Statistics Card - Moved to bottom on desktop, stays in left panel -->
+			<div class="rounded-xl bg-white p-4 shadow-sm md:mt-auto">
+				<h2 class="mb-4 text-lg font-semibold text-gray-900">Statistiche</h2>
+				<div class="flex flex-col gap-4">
+					<div class="flex items-center justify-between">
+						<span class="text-sm font-medium text-gray-600">Distanza totale:</span>
+						<span class="text-sm text-gray-900">{(totalDistance / 1000).toFixed(1)} km</span>
+					</div>
+					<div class="flex items-center justify-between">
+						<span class="text-sm font-medium text-gray-600">Velocità massima:</span>
+						<span class="text-sm text-gray-900">{stats.maxSpeed.toFixed(1)} km/h</span>
+					</div>
+					<div class="flex items-center justify-between">
+						<span class="text-sm font-medium text-gray-600">Velocità media:</span>
+						<span class="text-sm text-gray-900">{stats.avgSpeed.toFixed(1)} km/h</span>
+					</div>
+					<div class="flex items-center justify-between">
+						<span class="text-sm font-medium text-gray-600">Durata:</span>
+						<span class="text-sm text-gray-900">{stats.duration} minuti</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Mobile Stops Section - Only visible on mobile -->
+			<div class="my-4 flex min-h-0 flex-1 flex-col rounded-xl bg-white p-4 shadow-sm md:hidden">
 				<h2 class="mb-4 flex-shrink-0 text-lg font-semibold text-gray-900">Fermate</h2>
-				<div class="max-h-80 flex-1 overflow-y-auto pr-2 md:max-h-none">
+				<div class="max-h-80 flex-1 overflow-y-auto pr-2">
 					{#if stops.length === 0}
 						<div class="text-sm text-gray-500">Nessuna fermata configurata</div>
 					{:else}
@@ -750,33 +779,10 @@
 					{/if}
 				</div>
 			</div>
-
-			<!-- Trip Statistics Card -->
-			<div class="rounded-xl bg-white p-4 shadow-sm">
-				<h2 class="mb-4 text-lg font-semibold text-gray-900">Statistiche</h2>
-				<div class="flex flex-col gap-4">
-					<div class="flex items-center justify-between">
-						<span class="text-sm font-medium text-gray-600">Distanza totale:</span>
-						<span class="text-sm text-gray-900">{(totalDistance / 1000).toFixed(1)} km</span>
-					</div>
-					<div class="flex items-center justify-between">
-						<span class="text-sm font-medium text-gray-600">Velocità massima:</span>
-						<span class="text-sm text-gray-900">{stats.maxSpeed.toFixed(1)} km/h</span>
-					</div>
-					<div class="flex items-center justify-between">
-						<span class="text-sm font-medium text-gray-600">Velocità media:</span>
-						<span class="text-sm text-gray-900">{stats.avgSpeed.toFixed(1)} km/h</span>
-					</div>
-					<div class="flex items-center justify-between">
-						<span class="text-sm font-medium text-gray-600">Durata:</span>
-						<span class="text-sm text-gray-900">{stats.duration} minuti</span>
-					</div>
-				</div>
-			</div>
 		</div>
 
-		<!-- Map Container Card -->
-		<div class="relative min-h-[500px] flex-1 md:h-full">
+		<!-- Map Container Card - Center column on desktop -->
+		<div class="relative min-h-[500px] flex-1 md:mr-4 md:h-[70vh]">
 			<div class="h-full rounded-xl bg-white shadow-sm">
 				<div
 					bind:this={mapContainer}
@@ -804,6 +810,97 @@
 									: 'Offline'}
 						</span>
 					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Desktop Stops Section - Right column, only visible on desktop -->
+		<div class="hidden w-80 flex-shrink-0 bg-gray-50 p-4 md:flex md:h-[70vh] md:flex-col">
+			<div class="flex min-h-0 flex-1 flex-col rounded-xl bg-white p-4 shadow-sm">
+				<h2 class="mb-4 flex-shrink-0 text-lg font-semibold text-gray-900">Fermate</h2>
+				<div class="flex-1 overflow-y-auto pr-2">
+					{#if stops.length === 0}
+						<div class="text-sm text-gray-500">Nessuna fermata configurata</div>
+					{:else}
+						<div class="space-y-3">
+							{#each stops as stop (stop.id)}
+								<div
+									class="rounded-lg border p-3 shadow-sm transition-all duration-200 hover:shadow-md {stop.done
+										? 'border-green-200 bg-green-50'
+										: stop.skipped
+											? 'border-orange-200 bg-orange-50'
+											: stop.startTime
+												? 'border-yellow-200 bg-yellow-50'
+												: stop.isOngoing
+													? 'border-blue-200 bg-blue-50'
+													: 'border-gray-200 bg-white'}"
+								>
+									<!-- Stop Header -->
+									<div class="mb-2 flex items-center justify-between">
+										<div
+											class="flex flex-1 cursor-pointer items-center space-x-2"
+											on:click={() => handleStopClick(stop)}
+											on:keydown={(e) => {
+												if (e.key === 'Enter' || e.key === ' ') {
+													handleStopClick(stop);
+												}
+											}}
+											role="button"
+											tabindex="0"
+										>
+											<span class="text-sm font-medium text-gray-900">
+												{stop.route}
+											</span>
+										</div>
+										<div class="flex items-center space-x-2">
+											<!-- Stop letter badge -->
+											<span
+												class="flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm {stop.done
+													? 'bg-green-500'
+													: stop.skipped
+														? 'bg-orange-500'
+														: stop.startTime
+															? 'bg-yellow-500'
+															: stop.isOngoing
+																? 'bg-blue-500'
+																: 'bg-gray-400'}"
+											>
+												{stop.letter}
+											</span>
+										</div>
+									</div>
+
+									<!-- Stop Details -->
+									<div class="space-y-1 text-xs">
+										{#if stop.done}
+											<div class="text-green-700">
+												<div class="font-semibold">Completata</div>
+												<div>Durata: {formatDuration(stop.duration)}</div>
+												<div>{formatTime(stop.startTime)} - {formatTime(stop.endTime)}</div>
+											</div>
+										{:else if stop.skipped}
+											<div class="text-orange-700">
+												<div class="font-semibold">Saltata</div>
+											</div>
+										{:else if stop.startTime}
+											<div class="text-yellow-700">
+												<div class="font-semibold">In corso...</div>
+												<div>Iniziata: {formatTime(stop.startTime)}</div>
+											</div>
+										{:else if stop.isOngoing}
+											<div class="text-blue-700">
+												<div class="font-semibold">Prossima fermata</div>
+											</div>
+										{:else}
+											<div class="text-gray-600">
+												<div>In attesa</div>
+											</div>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>

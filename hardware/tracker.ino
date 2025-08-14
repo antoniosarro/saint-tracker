@@ -5,28 +5,42 @@
 #include "SPIFFS.h"
 #include <ArduinoJson.h>
 #include <time.h>
+#include <LiquidCrystal.h>
 
 // ===========================
 // ====== CONFIGURATION ======
 // ===========================
 
 // --- GPS Module Pins (GT-U7) ---
-#define RXD2 25  // ESP32 RX pin connected to GT-U7 TX
-#define TXD2 26  // ESP32 TX pin connected to GT-U7 RX
+#define RXD2 34  // ESP32 RX pin connected to GT-U7 TX
+#define TXD2 35  // ESP32 TX pin connected to GT-U7 RX
+
+// --- LCD Configuration (Parallel Connection) ---
+// LCD pins connected to ESP32
+#define LCD_RS    13    // Register Select pin
+#define LCD_EN    12    // Enable pin  
+#define LCD_D4    14    // Data pin 4
+#define LCD_D5    27    // Data pin 5
+#define LCD_D6    26    // Data pin 6
+#define LCD_D7    25    // Data pin 7
+// Note: VSS and RW pins go to GND, VDD to 5V, V0 to potentiometer for contrast
+
+#define LCD_COLUMNS 16
+#define LCD_ROWS 2
 
 // --- Operation Mode ---
-const bool USE_SIMULATED_GPS = true;
+const bool USE_SIMULATED_GPS = false;
 
 // --- WiFi Credentials ---
-const char* ssid = "HOTSPOT_SSID";
-const char* password = "HOTSPOT_PASSWORD";
+const char* ssid = "SSID";
+const char* password = "PASSWORD";
 
 // --- Server Endpoint ---
-const char* serverUrl = "http://server.com/api";
+const char* serverUrl = "http://backend/api/v1/waypoint/register";
 
 // --- Authentication Headers ---
-const char* headerToken = "YOUR_SECRET_TOKEN_HERE";
-const char* headerDevice = "ESP32-GPS-001";
+const char* headerToken = "DRDAfZO4HIeyAdgOqfZk7CYGudfZS4Yz1SaFKxypUXXUSljlcJvqkTVzmXk9DvMg";
+const char* headerDevice = "esptest";
 
 // --- NTP Configuration ---
 const char* ntpServer1 = "0.it.pool.ntp.org";
@@ -39,6 +53,7 @@ const int daylightOffset_sec = 3600;  // Daylight saving time offset
 const char* DEVICE_ID = "ESP32-Tracker-01";
 const unsigned long sendInterval = 10000;  // Send data every 10 seconds
 const unsigned long gpsTimeout = 5000;     // GPS fix timeout in milliseconds
+const unsigned long lcdUpdateInterval = 2000; // Update LCD every 2 seconds
 
 // --- Simulated GPS Data ---
 struct SimulatedPoint {
@@ -79,10 +94,29 @@ int simulatedIndex = 0;
 // ==============================
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
+LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+
 unsigned long lastSendTime = 0;
+unsigned long lastLCDUpdate = 0;
 unsigned long startGetFixmS;
 unsigned long endFixmS;
 bool ntpTimeSet = false;
+bool hasValidGPSFix = false;
+int totalDataSent = 0;
+int cachedDataCount = 0;
+
+// LCD Display modes
+enum LCDDisplayMode {
+  LCD_GPS_INFO,
+  LCD_WIFI_STATUS,
+  LCD_DATA_STATS,
+  LCD_TIME_INFO,
+  LCD_MODES_COUNT
+};
+
+LCDDisplayMode currentLCDMode = LCD_GPS_INFO;
+unsigned long lastModeChange = 0;
+const unsigned long modeChangeInterval = 5000; // Change mode every 5 seconds
 
 // =======================
 // ====== SETUP ==========
@@ -97,6 +131,15 @@ void setup() {
   Serial.println(USE_SIMULATED_GPS ? "SIMULATED GPS" : "REAL GPS");
   Serial.println("=================================");
 
+  // Initialize LCD
+  lcd.begin(LCD_COLUMNS, LCD_ROWS);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("GPS Tracker");
+  lcd.setCursor(0, 1);
+  lcd.print("Initializing...");
+  delay(2000);
+
   // Initialize GPS serial only if using real GPS
   if (!USE_SIMULATED_GPS) {
     gpsSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
@@ -106,6 +149,9 @@ void setup() {
   // Initialize SPIFFS for caching
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("SPIFFS Error!");
     return;
   }
   Serial.println("SPIFFS mounted successfully");
@@ -126,6 +172,9 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     initNTP();
   }
+
+  // Initial LCD display
+  updateLCD();
 }
 
 // =======================
@@ -137,17 +186,22 @@ void loop() {
   if (USE_SIMULATED_GPS) {
     // In simulation mode, we always have valid data
     hasValidData = true;
+    hasValidGPSFix = true;
   } else {
-    // Read from real GPS module
+    // Read from real GPS module - FIXED VERSION
     startGetFixmS = millis();
 
     // Try to get GPS fix with timeout
     if (gpsWaitFix(gpsTimeout)) {
-      hasValidData = gps.location.isValid() && gps.location.isUpdated();
+      // Check validity once and store the result
+      hasValidData = gps.location.isValid();
+      hasValidGPSFix = hasValidData;
+      
       if (hasValidData) {
         Serial.println("GPS Fix obtained!");
       }
     } else {
+      hasValidGPSFix = false;
       Serial.print(F("Timeout - No GPS Fix after "));
       Serial.print((millis() - startGetFixmS) / 1000);
       Serial.println(F(" seconds"));
@@ -165,12 +219,16 @@ void loop() {
       sendCachedData();
 
       // Then, send the current data point
-      if (!sendToServer(jsonData)) {
+      if (sendToServer(jsonData)) {
+        totalDataSent++;
+      } else {
         saveToCache(jsonData);  // Save current data if sending fails
+        cachedDataCount++;
       }
     } else {
       // If no WiFi, cache the data and try to reconnect
       saveToCache(jsonData);
+      cachedDataCount++;
       Serial.println("No WiFi connection. Data cached. Attempting to reconnect...");
       connectWiFi();
     }
@@ -180,6 +238,18 @@ void loop() {
       simulatedIndex = (simulatedIndex + 1) % simulatedDataPoints;
     }
   }
+
+  // Update LCD display
+  if (millis() - lastLCDUpdate >= lcdUpdateInterval) {
+    updateLCD();
+    lastLCDUpdate = millis();
+  }
+
+  // Change LCD display mode automatically
+  if (millis() - lastModeChange >= modeChangeInterval) {
+    currentLCDMode = (LCDDisplayMode)((currentLCDMode + 1) % LCD_MODES_COUNT);
+    lastModeChange = millis();
+  }
 }
 
 // =======================
@@ -187,13 +257,122 @@ void loop() {
 // =======================
 
 /**
- * @brief Waits for GPS fix with timeout
+ * @brief Updates the LCD display with current information
+ */
+void updateLCD() {
+  lcd.clear();
+  
+  switch (currentLCDMode) {
+    case LCD_GPS_INFO:
+      displayGPSOnLCD();
+      break;
+    case LCD_WIFI_STATUS:
+      displayWiFiOnLCD();
+      break;
+    case LCD_DATA_STATS:
+      displayDataStatsOnLCD();
+      break;
+    case LCD_TIME_INFO:
+      displayTimeOnLCD();
+      break;
+  }
+}
+
+/**
+ * @brief Displays GPS information on LCD
+ */
+void displayGPSOnLCD() {
+  lcd.setCursor(0, 0);
+  lcd.print("GPS:");
+  
+  if (hasValidGPSFix) {
+    lcd.print(" FIXED");
+    lcd.setCursor(0, 1);
+    if (USE_SIMULATED_GPS) {
+      lcd.print("S:");
+      lcd.print(simulatedData[simulatedIndex].speed, 1);
+      lcd.print("m/s ");
+      lcd.print(gps.satellites.value());
+      lcd.print("sats");
+    } else {
+      lcd.print("S:");
+      lcd.print(gps.speed.mps(), 1);
+      lcd.print("m/s ");
+      lcd.print(gps.satellites.value());
+      lcd.print("sats");
+    }
+  } else {
+    lcd.print(" NO FIX");
+    lcd.setCursor(0, 1);
+    lcd.print("Searching...");
+  }
+}
+
+/**
+ * @brief Displays WiFi status on LCD
+ */
+void displayWiFiOnLCD() {
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi: ");
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    lcd.print("OK");
+    lcd.setCursor(0, 1);
+    lcd.print("RSSI:");
+    lcd.print(WiFi.RSSI());
+    lcd.print("dBm");
+  } else {
+    lcd.print("DOWN");
+    lcd.setCursor(0, 1);
+    lcd.print("Reconnecting...");
+  }
+}
+
+/**
+ * @brief Displays data transmission statistics on LCD
+ */
+void displayDataStatsOnLCD() {
+  lcd.setCursor(0, 0);
+  lcd.print("Sent:");
+  lcd.print(totalDataSent);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("Cached:");
+  lcd.print(cachedDataCount);
+}
+
+/**
+ * @brief Displays current time on LCD
+ */
+void displayTimeOnLCD() {
+  lcd.setCursor(0, 0);
+  if (ntpTimeSet) {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+      lcd.printf("%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    } else {
+      lcd.print("Time: ERROR");
+    }
+    lcd.setCursor(0, 1);
+    lcd.printf("%02d/%02d/%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+  } else {
+    lcd.print("Time: NO NTP");
+    lcd.setCursor(0, 1);
+    lcd.print("Uptime:");
+    lcd.print(millis() / 1000);
+    lcd.print("s");
+  }
+}
+
+/**
+ * @brief Waits for GPS fix with timeout - FIXED VERSION
  * @param waitmS Maximum time to wait in milliseconds
  * @return True if fix obtained, false if timeout
  */
 bool gpsWaitFix(uint16_t waitmS) {
   uint32_t startmS = millis();
   uint8_t GPSchar;
+  bool locationUpdated = false;
 
   Serial.print(F("Waiting for GPS Fix (max "));
   Serial.print(waitmS / 1000);
@@ -203,10 +382,15 @@ bool gpsWaitFix(uint16_t waitmS) {
     while (gpsSerial.available() > 0) {
       GPSchar = gpsSerial.read();
       gps.encode(GPSchar);
+      
+      // Check if location was just updated
+      if (gps.location.isUpdated()) {
+        locationUpdated = true;
+      }
     }
 
-    // Check if we have valid location data
-    if (gps.location.isValid() && gps.location.isUpdated()) {
+    // Check if we have valid location data and it was recently updated
+    if (gps.location.isValid() && locationUpdated) {
       endFixmS = millis();
       Serial.print(F("GPS Fix obtained in "));
       Serial.print(endFixmS - startmS);
@@ -240,7 +424,7 @@ void displayGPSInfo() {
     Serial.print(F(" m, Sats: "));
     Serial.print(gps.satellites.value());
     Serial.print(F(", Speed: "));
-    Serial.println(gps.speed.kmph(), 1);  // Speed in m/s
+    Serial.println(gps.speed.mps(), 1);  // Speed in m/s
   }
 }
 
@@ -249,6 +433,11 @@ void displayGPSInfo() {
  */
 void initNTP() {
   Serial.println("Initializing NTP time synchronization...");
+  
+  // Show NTP sync on LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Syncing NTP...");
 
   // Configure NTP with Italian pool servers
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer1, ntpServer2, ntpServer3);
@@ -258,6 +447,8 @@ void initNTP() {
   int attempts = 0;
   while (!getLocalTime(&timeinfo) && attempts < 10) {
     Serial.print(".");
+    lcd.setCursor(attempts, 1);
+    lcd.print(".");
     delay(1000);
     attempts++;
   }
@@ -268,9 +459,19 @@ void initNTP() {
                   timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
                   timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
     ntpTimeSet = true;
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("NTP Synced!");
+    delay(2000);
   } else {
     Serial.println("\nFailed to obtain NTP time");
     ntpTimeSet = false;
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("NTP Failed!");
+    delay(2000);
   }
 }
 
@@ -300,13 +501,28 @@ unsigned long long getCurrentTimestamp() {
  */
 void connectWiFi() {
   Serial.printf("Connecting to %s ", ssid);
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting WiFi");
+  lcd.setCursor(0, 1);
+  lcd.print(ssid);
+  
   WiFi.begin(ssid, password);
 
   // Wait for connection with timeout
   unsigned long start = millis();
+  int dots = 0;
   while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
     delay(500);
     Serial.print(".");
+    
+    // Show progress on LCD
+    if (dots < 16) {
+      lcd.setCursor(dots, 1);
+      lcd.print(".");
+      dots++;
+    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -314,12 +530,24 @@ void connectWiFi() {
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
 
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Connected!");
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.localIP());
+    delay(3000);
+
     // Try to sync NTP time if not already synced
     if (!ntpTimeSet) {
       initNTP();
     }
   } else {
     Serial.println("\nWiFi connection failed.");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Failed!");
+    delay(2000);
   }
 }
 
@@ -348,7 +576,7 @@ String createDataJson() {
     json += "\"longitude\":" + String(gps.location.lng(), 6) + ",";
 
     // Convert GPS speed to int (m/s)
-    int speed = (int)gps.speed.kmph();
+    int speed = (int)gps.speed.mps();
     json += "\"speed\":" + String(speed) + ",";
 
     // Use NTP synchronized timestamp
@@ -473,6 +701,7 @@ void sendCachedData() {
 
   if (sendToServer(payload)) {
     SPIFFS.remove("/cache.txt");
+    cachedDataCount = 0; // Reset cached count
     Serial.println("Cached data sent successfully and cache cleared.");
   } else {
     Serial.println("Failed to send cached data. Will retry next time.");
