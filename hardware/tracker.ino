@@ -51,7 +51,7 @@ const int daylightOffset_sec = 3600;  // Daylight saving time offset
 
 // --- Device Settings ---
 const char* DEVICE_ID = "ESP32-Tracker-01";
-const unsigned long sendInterval = 10000;  // Send data every 10 seconds
+const unsigned long sendInterval = 5000;  // Send data every 10 seconds
 const unsigned long gpsTimeout = 5000;     // GPS fix timeout in milliseconds
 const unsigned long lcdUpdateInterval = 2000; // Update LCD every 2 seconds
 
@@ -296,7 +296,7 @@ void displayGPSOnLCD() {
       lcd.print("sats");
     } else {
       lcd.print("S:");
-      lcd.print(gps.speed.mps(), 1);
+      lcd.print(gps.speed.kmph(), 1);
       lcd.print("m/s ");
       lcd.print(gps.satellites.value());
       lcd.print("sats");
@@ -424,7 +424,7 @@ void displayGPSInfo() {
     Serial.print(F(" m, Sats: "));
     Serial.print(gps.satellites.value());
     Serial.print(F(", Speed: "));
-    Serial.println(gps.speed.mps(), 1);  // Speed in m/s
+    Serial.println(gps.speed.kmph(), 1);  // Speed in m/s
   }
 }
 
@@ -576,7 +576,7 @@ String createDataJson() {
     json += "\"longitude\":" + String(gps.location.lng(), 6) + ",";
 
     // Convert GPS speed to int (m/s)
-    int speed = (int)gps.speed.mps();
+    int speed = (int)gps.speed.kmph();
     json += "\"speed\":" + String(speed) + ",";
 
     // Use NTP synchronized timestamp

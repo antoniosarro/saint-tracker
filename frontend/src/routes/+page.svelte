@@ -15,12 +15,13 @@
 	} from 'leaflet';
 	import { onDestroy, onMount } from 'svelte';
 	import { derived } from 'svelte/store';
+	import { browser } from '$app/environment';
 	import type { Stop } from '$types/stop';
 
 	export let deviceInfo = {
 		id: 'ESP32-Alpha',
 		saint: "Sant\'Antonio per le campagne",
-		saintSub: "Giorno 1",
+		saintSub: 'Giorno 1',
 		location: 'Montefalcione',
 		status: 'Online',
 		lastUpdate: '2 min. fa'
@@ -29,13 +30,18 @@
 	const mfCenter = [40.9610384, 14.8822149];
 
 	// Map Variables
-	let mapContainer: HTMLDivElement;
+	let mobileMapContainer: HTMLDivElement;
+	let desktopMapContainer: HTMLDivElement;
 	let map: LeafMap;
 	let currentPositionMarker: Marker;
 	let routePolyline: Polyline;
 	let stopMarkers: Map<number, Marker> = new Map();
 	let stopCircles: Map<number, Circle> = new Map();
 	let L: typeof import('leaflet');
+
+	// Track current container and screen size
+	let currentContainer: HTMLDivElement | null = null;
+	let isMobile = false;
 
 	// Mobile scroll state
 	let showScrollToTop = false;
@@ -83,17 +89,16 @@
 		L = await import('leaflet');
 		await import('leaflet/dist/leaflet.css');
 
-		// Initialize map
-		map = L.map(mapContainer, {
-			center: mfCenter as LatLngTuple,
-			zoom: 16,
-			zoomControl: false,
-			attributionControl: false
-		});
+		// Determine initial container based on screen size
+		checkScreenSize();
 
-		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-			attribution: '© OpenStreetMap contributors'
-		}).addTo(map);
+		// Initialize map in the appropriate container
+		initializeMap();
+
+		// Set up resize listener
+		if (browser) {
+			window.addEventListener('resize', handleResize);
+		}
 
 		// Load initial waypoints from API
 		try {
@@ -115,8 +120,108 @@
 		if (map) {
 			map.remove();
 		}
+		if (browser) {
+			window.removeEventListener('resize', handleResize);
+		}
 		websocketStore.disconnect();
 	});
+
+	function checkScreenSize() {
+		const wasMobile = isMobile;
+		if (browser) {
+			isMobile = window.innerWidth < 768; // md breakpoint
+		}
+
+		// Return true if screen size category changed
+		return wasMobile !== isMobile;
+	}
+
+	function initializeMap() {
+		const targetContainer = isMobile ? mobileMapContainer : desktopMapContainer;
+
+		if (!targetContainer || !L) return;
+
+		// If map already exists, move it to the new container
+		if (map && currentContainer !== targetContainer) {
+			moveMapToContainer(targetContainer);
+			return;
+		}
+
+		// Create new map if it doesn't exist
+		if (!map) {
+			currentContainer = targetContainer;
+			map = L.map(targetContainer, {
+				center: mfCenter as LatLngTuple,
+				zoom: 16,
+				zoomControl: false,
+				attributionControl: false
+			});
+
+			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+				attribution: '© OpenStreetMap contributors'
+			}).addTo(map);
+		}
+	}
+
+	function moveMapToContainer(newContainer: HTMLDivElement) {
+		if (!map || !newContainer || currentContainer === newContainer) return;
+
+		try {
+			// Get current map state
+			const center = map.getCenter();
+			const zoom = map.getZoom();
+
+			// Remove map from current container
+			map.remove();
+
+			// Create new map in the new container
+			currentContainer = newContainer;
+			map = L.map(newContainer, {
+				center: [center.lat, center.lng],
+				zoom: zoom,
+				zoomControl: false,
+				attributionControl: false
+			});
+
+			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+				attribution: '© OpenStreetMap contributors'
+			}).addTo(map);
+
+			// Restore map data
+			setTimeout(() => {
+				updateMap();
+				updateStopMarkers();
+				// Force a resize to ensure proper rendering
+				map.invalidateSize();
+			}, 100);
+		} catch (error) {
+			console.error('Error moving map to new container:', error);
+			// Fallback: reinitialize the map
+			if (map) {
+				map.remove();
+			}
+			map = null;
+			currentContainer = null;
+			initializeMap();
+		}
+	}
+
+	function handleResize() {
+		const screenSizeChanged = checkScreenSize();
+
+		if (screenSizeChanged && map) {
+			// Screen size category changed, move map to appropriate container
+			const targetContainer = isMobile ? mobileMapContainer : desktopMapContainer;
+			if (targetContainer && currentContainer !== targetContainer) {
+				moveMapToContainer(targetContainer);
+			}
+		} else if (map) {
+			// Same screen size category, just invalidate size
+			setTimeout(() => {
+				map.invalidateSize();
+			}, 100);
+		}
+	}
 
 	// Handle scroll for showing/hiding scroll-to-top button
 	function handleScroll() {
@@ -146,6 +251,14 @@
 	// React to new waypoints from WebSocket
 	$: if (newWaypointData.length > 0) {
 		waypointStore.addWaypoints(newWaypointData);
+	}
+
+	// React to container changes - ensure map is in the right place
+	$: if (mobileMapContainer && desktopMapContainer && map) {
+		const targetContainer = isMobile ? mobileMapContainer : desktopMapContainer;
+		if (currentContainer !== targetContainer) {
+			moveMapToContainer(targetContainer);
+		}
 	}
 
 	function processGpsData() {
@@ -450,10 +563,10 @@
 			}
 
 			// On mobile, scroll to map container to show the result
-			if (window.innerWidth < 768 && mapContainer && scrollContainer) {
+			if (isMobile && currentContainer && scrollContainer) {
 				// Small delay to ensure map has updated
 				setTimeout(() => {
-					const mapRect = mapContainer.getBoundingClientRect();
+					const mapRect = currentContainer!.getBoundingClientRect();
 					const scrollTop = scrollContainer.scrollTop;
 					const containerTop = scrollContainer.getBoundingClientRect().top;
 
@@ -469,6 +582,7 @@
 		}
 	}
 </script>
+
 
 <svelte:head>
 	<title>Saint Tracker</title>
@@ -543,7 +657,7 @@
 			<div class="mb-4 block rounded-xl bg-white p-4 shadow-sm md:hidden">
 				<div class="relative min-h-[400px]">
 					<div
-						bind:this={mapContainer}
+						bind:this={mobileMapContainer}
 						class="z-9 h-[400px] w-full overflow-hidden rounded-lg"
 					></div>
 
@@ -818,6 +932,7 @@
 		<div class="relative hidden min-h-[500px] flex-1 md:mr-4 md:block md:h-[70vh]">
 			<div class="h-full rounded-xl bg-white shadow-sm">
 				<div
+					bind:this={desktopMapContainer}
 					class="z-9 h-full min-h-[450px] w-full overflow-hidden rounded-lg md:min-h-[calc(100vh-8rem)]"
 				></div>
 			</div>

@@ -20,7 +20,7 @@ func router(w *web.Web, cfg *Options, hub *websocket.Hub) {
 
 		backendDetails := map[string]interface{}{
 			"service":     "saint-tracker-backend",
-			"version":     "1.0.0",
+			"version":     "1.0.1",
 			"started_at":  startTime.Format(time.RFC3339),
 			"environment": cfg.ServerCfg.App,
 			"timestamp":   time.Now().Format(time.RFC3339),

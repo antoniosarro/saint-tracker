@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/antoniosarro/saint-tracker/backend/internal/sdk/httperrors"
@@ -15,6 +16,10 @@ func (mid *Middleware) RequestLogMiddleware(next echo.HandlerFunc) echo.HandlerF
 
 		req := c.Request()
 		res := c.Response()
+
+		if strings.Contains(req.RequestURI, "health") {
+			return err
+		}
 
 		since := time.Since(start).String()
 		reqId := res.Header().Get(echo.HeaderXRequestID)
