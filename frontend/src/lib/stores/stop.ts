@@ -11,7 +11,7 @@ interface StopState {
 const INITIAL_STOPS: Stop[] = [
 	{
 		id: 1,
-		letter: 'A',
+		letter: '1',
 		route: 'Chiesa Madre',
 		startTime: null,
 		endTime: null,
@@ -25,7 +25,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 2,
-		letter: 'B',
+		letter: '2',
 		route: 'Famiglia Catalano',
 		startTime: null,
 		endTime: null,
@@ -39,7 +39,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 3,
-		letter: 'C',
+		letter: '3',
 		route: 'Contrada Castelrotto, 2',
 		startTime: null,
 		endTime: null,
@@ -53,7 +53,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 4,
-		letter: 'D',
+		letter: '4',
 		route: 'EuroGlass De Cicco',
 		startTime: null,
 		endTime: null,
@@ -67,7 +67,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 5,
-		letter: 'E',
+		letter: '5',
 		route: 'Famiglia Ferraro',
 		startTime: null,
 		endTime: null,
@@ -81,7 +81,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 6,
-		letter: 'F',
+		letter: '6',
 		route: 'Guarini Santa Marina, 36',
 		startTime: null,
 		endTime: null,
@@ -95,7 +95,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 7,
-		letter: 'G',
+		letter: '7',
 		route: 'Orazio Martignetti',
 		startTime: null,
 		endTime: null,
@@ -109,7 +109,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 8,
-		letter: 'H',
+		letter: '8',
 		route: 'Contrada Lomba - Montemiletto',
 		startTime: null,
 		endTime: null,
@@ -123,7 +123,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 9,
-		letter: 'I',
+		letter: '9',
 		route: 'Bosco Lumeti - Montemiletto',
 		startTime: null,
 		endTime: null,
@@ -137,7 +137,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 10,
-		letter: 'J',
+		letter: '10',
 		route: 'Bosco Lumeti, 8',
 		startTime: null,
 		endTime: null,
@@ -151,7 +151,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 11,
-		letter: 'K',
+		letter: '11',
 		route: 'Cappella Antonio Rapa',
 		startTime: null,
 		endTime: null,
@@ -165,7 +165,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 12,
-		letter: 'L',
+		letter: '12',
 		route: 'Famiglia Melchiorre',
 		startTime: null,
 		endTime: null,
@@ -179,7 +179,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 13,
-		letter: 'M',
+		letter: '13',
 		route: 'Guarini Santa Marina, 62',
 		startTime: null,
 		endTime: null,
@@ -193,7 +193,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 14,
-		letter: 'N',
+		letter: '14',
 		route: 'SP173, 30',
 		startTime: null,
 		endTime: null,
@@ -207,7 +207,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 15,
-		letter: 'O',
+		letter: '15',
 		route: 'Famiglia Mancino',
 		startTime: null,
 		endTime: null,
@@ -221,7 +221,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 16,
-		letter: 'P',
+		letter: '16',
 		route: 'SP173, 26',
 		startTime: null,
 		endTime: null,
@@ -235,7 +235,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 17,
-		letter: 'Q',
+		letter: '17',
 		route: 'Pizzeria Da Totonno',
 		startTime: null,
 		endTime: null,
@@ -249,7 +249,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 18,
-		letter: 'R',
+		letter: '18',
 		route: 'Famiglia Iantosca',
 		startTime: null,
 		endTime: null,
@@ -263,7 +263,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 19,
-		letter: 'S',
+		letter: '19',
 		route: 'Ex Autolavaggio Pagliuca',
 		startTime: null,
 		endTime: null,
@@ -277,7 +277,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 20,
-		letter: 'T',
+		letter: '20',
 		route: 'Via Selvetelle, 6',
 		startTime: null,
 		endTime: null,
@@ -291,7 +291,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 21,
-		letter: 'U',
+		letter: '21',
 		route: 'Via Selvetelle, 12',
 		startTime: null,
 		endTime: null,
@@ -305,7 +305,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 22,
-		letter: 'V',
+		letter: '22',
 		route: 'Famiglie Fiorentino e Di Giovanni',
 		startTime: null,
 		endTime: null,
@@ -319,8 +319,8 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 23,
-		letter: 'W',
-		route: "Famiglia D'alelio",
+		letter: '23',
+		route: "Famiglia D'Alelio",
 		startTime: null,
 		endTime: null,
 		duration: 0,
@@ -333,7 +333,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 24,
-		letter: 'X',
+		letter: '24',
 		route: 'SP214, 56',
 		startTime: null,
 		endTime: null,
@@ -347,7 +347,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 25,
-		letter: 'Y',
+		letter: '25',
 		route: 'Contrada Lolli, 11',
 		startTime: null,
 		endTime: null,
@@ -361,7 +361,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 26,
-		letter: 'Z',
+		letter: '26',
 		route: 'Famiglia Luigi Cataldo',
 		startTime: null,
 		endTime: null,
@@ -375,8 +375,8 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 27,
-		letter: 'AA',
-		route: "Famiglia Felicita D'amore",
+		letter: '27',
+		route: "Famiglia Felicita D'Amore",
 		startTime: null,
 		endTime: null,
 		duration: 0,
@@ -389,7 +389,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 28,
-		letter: 'AB',
+		letter: '28',
 		route: 'Famiglia Tony Martignetti',
 		startTime: null,
 		endTime: null,
@@ -403,7 +403,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 29,
-		letter: 'AC',
+		letter: '29',
 		route: 'Famiglia Ciampa',
 		startTime: null,
 		endTime: null,
@@ -417,7 +417,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 30,
-		letter: 'AD',
+		letter: '30',
 		route: 'SP214, 11',
 		startTime: null,
 		endTime: null,
@@ -431,7 +431,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 31,
-		letter: 'AE',
+		letter: '31',
 		route: 'Contrada Arianiello',
 		startTime: null,
 		endTime: null,
@@ -445,7 +445,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 32,
-		letter: 'AF',
+		letter: '32',
 		route: 'Chiesa della Madonna del Carmelo - Lapio',
 		startTime: null,
 		endTime: null,
@@ -459,7 +459,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 33,
-		letter: 'AG',
+		letter: '33',
 		route: "Famiglia D'alelio - Selvetelle",
 		startTime: null,
 		endTime: null,
@@ -473,7 +473,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 34,
-		letter: 'AH',
+		letter: '34',
 		route: 'Guarini Santa Marina - Ex scuole',
 		startTime: null,
 		endTime: null,
@@ -487,7 +487,7 @@ const INITIAL_STOPS: Stop[] = [
 	},
 	{
 		id: 35,
-		letter: 'AI',
+		letter: '35',
 		route: 'Chiesa Guarini Santa Marina',
 		startTime: null,
 		endTime: null,

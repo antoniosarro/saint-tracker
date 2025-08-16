@@ -1,0 +1,1 @@
+export { default as DeviceInfo } from './DeviceInfo.svelte';

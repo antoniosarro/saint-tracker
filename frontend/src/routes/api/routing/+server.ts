@@ -1,4 +1,3 @@
-// src/routes/api/routing/+server.ts
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
@@ -15,12 +14,24 @@ interface RouteSegment {
   timestamp: number;
 }
 
+interface PendingRequest {
+  promise: Promise<any>;
+  timestamp: number;
+}
+
 // In-memory cache - in production, consider using Redis or similar
 const routeCache = new Map<string, CachedRoute>();
 const segmentCache = new Map<string, RouteSegment>();
 
+// Pending request tracking for deduplication
+const pendingFullRoutes = new Map<string, PendingRequest>();
+const pendingSegments = new Map<string, PendingRequest>();
+const pendingStreams = new Map<string, PendingRequest>();
+
 // Cache TTL in milliseconds (24 hours)
 const CACHE_TTL = 24 * 60 * 60 * 1000;
+// Pending request timeout (5 minutes)
+const PENDING_REQUEST_TTL = 5 * 60 * 1000;
 
 // Maximum number of waypoints per OSRM request
 const MAX_WAYPOINTS_PER_REQUEST = 20;
@@ -46,32 +57,356 @@ function isCacheValid(timestamp: number): boolean {
   return Date.now() - timestamp < CACHE_TTL;
 }
 
-async function fetchRouteFromOSRM(waypoints: [number, number][]): Promise<any> {
+function isPendingRequestValid(timestamp: number): boolean {
+  return Date.now() - timestamp < PENDING_REQUEST_TTL;
+}
+
+// Clean up expired pending requests
+function cleanupExpiredPendingRequests() {
+  const now = Date.now();
+  
+  // Clean up expired pending full routes
+  for (const [key, pending] of pendingFullRoutes.entries()) {
+    if (!isPendingRequestValid(pending.timestamp)) {
+      pendingFullRoutes.delete(key);
+    }
+  }
+  
+  // Clean up expired pending segments
+  for (const [key, pending] of pendingSegments.entries()) {
+    if (!isPendingRequestValid(pending.timestamp)) {
+      pendingSegments.delete(key);
+    }
+  }
+  
+  // Clean up expired pending streams
+  for (const [key, pending] of pendingStreams.entries()) {
+    if (!isPendingRequestValid(pending.timestamp)) {
+      pendingStreams.delete(key);
+    }
+  }
+}
+
+// Atomic OSRM fetch with deduplication
+async function fetchRouteFromOSRMAtomic(waypoints: [number, number][]): Promise<any> {
+  const key = generateWaypointKey(waypoints);
+  
+  // Check if there's already a pending request for these waypoints
+  const existingPending = pendingSegments.get(key);
+  if (existingPending && isPendingRequestValid(existingPending.timestamp)) {
+    console.log(`Reusing pending OSRM request for key: ${key}`);
+    return existingPending.promise;
+  }
+  
+  // Create new request
   const coordinates = waypoints
     .map(([lat, lng]) => `${lng},${lat}`)
     .join(';');
   
   const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
   
-  console.log(`Fetching route from OSRM: ${waypoints.length} waypoints`);
+  console.log(`Creating new OSRM request for: ${waypoints.length} waypoints`);
   
-  const response = await fetch(url, {
+  const promise = fetch(url, {
     headers: {
       'User-Agent': 'Saint-Tracker/1.0'
     }
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.code !== 'Ok') {
+      throw new Error(`OSRM routing error: ${data.code} - ${data.message || 'Unknown error'}`);
+    }
+
+    return data;
+  }).finally(() => {
+    // Clean up pending request when done
+    pendingSegments.delete(key);
+  });
+  
+  // Store the pending request
+  pendingSegments.set(key, {
+    promise,
+    timestamp: Date.now()
+  });
+  
+  return promise;
+}
+
+// Helper function to create streaming response
+function createStreamingResponse() {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array>;
+  let isClosed = false;
+  let isClosing = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(ctrl) {
+      controller = ctrl;
+    },
+    cancel() {
+      // Called when the client disconnects
+      isClosed = true;
+      isClosing = true;
+      console.log('Stream cancelled by client');
+    }
   });
 
-  if (!response.ok) {
-    throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
-  }
+  const writeData = (data: any) => {
+    if (isClosed || isClosing) {
+      console.log('Attempted to write to closed stream, ignoring');
+      return false;
+    }
 
-  const data = await response.json();
+    try {
+      const json = JSON.stringify(data) + '\n';
+      controller.enqueue(encoder.encode(json));
+      return true;
+    } catch (error) {
+      console.error('Error writing to stream:', error);
+      isClosed = true;
+      return false;
+    }
+  };
+
+  const close = () => {
+    if (!isClosed && !isClosing) {
+      try {
+        isClosing = true;
+        controller.close();
+        isClosed = true;
+      } catch (error) {
+        console.error('Error closing stream:', error);
+        isClosed = true;
+      }
+    }
+  };
+
+  const isStreamClosed = () => isClosed || isClosing;
+
+  return { stream, writeData, close, isStreamClosed };
+}
+
+// Atomic streaming with deduplication
+async function streamIncrementalRouteAtomic(
+  waypoints: [number, number][], 
+  writeData: (data: any) => boolean,
+  isStreamClosed: () => boolean
+): Promise<void> {
+  const key = generateWaypointKey(waypoints);
   
-  if (data.code !== 'Ok') {
-    throw new Error(`OSRM routing error: ${data.code} - ${data.message || 'Unknown error'}`);
+  // Check if there's already a pending stream for these waypoints
+  const existingPendingStream = pendingStreams.get(key);
+  if (existingPendingStream && isPendingRequestValid(existingPendingStream.timestamp)) {
+    console.log(`Concurrent stream request detected for key: ${key}, waiting for existing request`);
+    try {
+      await existingPendingStream.promise;
+      // The result should be in cache now, so we can return it
+      const cachedFullRoute = routeCache.get(key);
+      if (cachedFullRoute && isCacheValid(cachedFullRoute.timestamp)) {
+        writeData({
+          type: 'complete_route',
+          route: cachedFullRoute.route,
+          cached: true
+        });
+        return;
+      }
+    } catch (error) {
+      console.log('Existing stream failed, proceeding with new request');
+    }
+  }
+  
+  // Create new streaming request
+  const streamPromise = performStreamIncrementalRoute(waypoints, writeData, isStreamClosed);
+  
+  // Store the pending stream request
+  pendingStreams.set(key, {
+    promise: streamPromise,
+    timestamp: Date.now()
+  });
+  
+  try {
+    await streamPromise;
+  } finally {
+    // Clean up pending request when done
+    pendingStreams.delete(key);
+  }
+}
+
+async function performStreamIncrementalRoute(
+  waypoints: [number, number][], 
+  writeData: (data: any) => boolean,
+  isStreamClosed: () => boolean
+): Promise<void> {
+  // Check if we have the complete route cached
+  const fullRouteKey = generateWaypointKey(waypoints);
+  const cachedFullRoute = routeCache.get(fullRouteKey);
+  
+  if (cachedFullRoute && isCacheValid(cachedFullRoute.timestamp)) {
+    console.log('Returning cached full route');
+    writeData({
+      type: 'complete_route',
+      route: cachedFullRoute.route,
+      cached: true
+    });
+    return;
   }
 
-  return data;
+  // Send initial status
+  if (!writeData({
+    type: 'status',
+    message: 'Starting route calculation',
+    totalSegments: waypoints.length - 1
+  })) return;
+
+  const segments: any[] = [];
+  const missingSegments: { from: [number, number]; to: [number, number]; index: number }[] = [];
+
+  // Check which segments we have cached
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    if (isStreamClosed()) {
+      console.log('Stream closed, stopping segment check');
+      return;
+    }
+
+    const from = waypoints[i];
+    const to = waypoints[i + 1];
+    const segmentKey = generateSegmentKey(from, to);
+    const cachedSegment = segmentCache.get(segmentKey);
+
+    if (cachedSegment && isCacheValid(cachedSegment.timestamp)) {
+      segments[i] = cachedSegment.route;
+      
+      // Send cached segment immediately
+      if (!writeData({
+        type: 'segment',
+        index: i,
+        route: cachedSegment.route,
+        cached: true,
+        progress: {
+          current: i + 1,
+          total: waypoints.length - 1
+        }
+      })) return;
+    } else {
+      missingSegments.push({ from, to, index: i });
+    }
+  }
+
+  // Send update about missing segments
+  if (missingSegments.length > 0) {
+    if (!writeData({
+      type: 'status',
+      message: `Fetching ${missingSegments.length} missing segments`,
+      missingSegments: missingSegments.length,
+      cachedSegments: segments.filter(s => s !== undefined).length
+    })) return;
+  }
+
+  // Fetch missing segments and stream them as they arrive
+  for (const missingSegment of missingSegments) {
+    if (isStreamClosed()) {
+      console.log('Stream closed, stopping segment fetch');
+      return;
+    }
+
+    try {
+      if (!writeData({
+        type: 'status',
+        message: `Fetching segment ${missingSegment.index + 1}`,
+        currentSegment: missingSegment.index + 1
+      })) return;
+
+      // Use atomic fetch - this will deduplicate concurrent requests for the same segment
+      const segmentRoute = await fetchRouteFromOSRMAtomic([missingSegment.from, missingSegment.to]);
+      
+      if (isStreamClosed()) {
+        console.log('Stream closed after fetch, stopping');
+        return;
+      }
+
+      // Cache the segment
+      const segmentKey = generateSegmentKey(missingSegment.from, missingSegment.to);
+      segmentCache.set(segmentKey, {
+        from: missingSegment.from,
+        to: missingSegment.to,
+        route: segmentRoute,
+        timestamp: Date.now()
+      });
+
+      segments[missingSegment.index] = segmentRoute;
+
+      // Stream the segment immediately
+      if (!writeData({
+        type: 'segment',
+        index: missingSegment.index,
+        route: segmentRoute,
+        cached: false,
+        progress: {
+          current: missingSegment.index + 1,
+          total: waypoints.length - 1
+        }
+      })) return;
+      
+      // Small delay to avoid overwhelming OSRM
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+      console.error(`Failed to fetch segment ${missingSegment.index}:`, error);
+      
+      if (!writeData({
+        type: 'error',
+        message: `Failed to fetch segment ${missingSegment.index + 1}`,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        segmentIndex: missingSegment.index
+      })) return;
+    }
+  }
+
+  if (isStreamClosed()) {
+    console.log('Stream closed, not sending final result');
+    return;
+  }
+
+  // Filter out undefined segments
+  const validSegments = segments.filter(segment => segment !== undefined);
+
+  if (validSegments.length === 0) {
+    writeData({
+      type: 'error',
+      message: 'No valid route segments available'
+    });
+    return;
+  }
+
+  // Combine all segments and send final result
+  const combinedRoute = combineRoutes(validSegments);
+
+  // Cache the full route
+  if (combinedRoute) {
+    routeCache.set(fullRouteKey, {
+      waypoints: [...waypoints],
+      route: combinedRoute,
+      timestamp: Date.now()
+    });
+  }
+
+  writeData({
+    type: 'complete_route',
+    route: combinedRoute,
+    cached: false,
+    stats: {
+      totalSegments: waypoints.length - 1,
+      validSegments: validSegments.length,
+      fetchedSegments: missingSegments.length,
+      cachedSegments: validSegments.length - missingSegments.length
+    }
+  });
+
+  console.log(`Built route from ${validSegments.length} segments (${missingSegments.length} fetched, ${validSegments.length - missingSegments.length} cached)`);
 }
 
 function combineRoutes(routes: any[]): any {
@@ -113,7 +448,36 @@ function combineRoutes(routes: any[]): any {
   };
 }
 
-async function getIncrementalRoute(waypoints: [number, number][]): Promise<any> {
+// Atomic non-streaming version with deduplication
+async function getIncrementalRouteAtomic(waypoints: [number, number][]): Promise<any> {
+  const key = generateWaypointKey(waypoints);
+  
+  // Check if there's already a pending request for these waypoints
+  const existingPending = pendingFullRoutes.get(key);
+  if (existingPending && isPendingRequestValid(existingPending.timestamp)) {
+    console.log(`Reusing pending full route request for key: ${key}`);
+    return existingPending.promise;
+  }
+  
+  // Create new request
+  const routePromise = performGetIncrementalRoute(waypoints);
+  
+  // Store the pending request
+  pendingFullRoutes.set(key, {
+    promise: routePromise,
+    timestamp: Date.now()
+  });
+  
+  try {
+    const result = await routePromise;
+    return result;
+  } finally {
+    // Clean up pending request when done
+    pendingFullRoutes.delete(key);
+  }
+}
+
+async function performGetIncrementalRoute(waypoints: [number, number][]): Promise<any> {
   // Check if we have the complete route cached
   const fullRouteKey = generateWaypointKey(waypoints);
   const cachedFullRoute = routeCache.get(fullRouteKey);
@@ -141,10 +505,11 @@ async function getIncrementalRoute(waypoints: [number, number][]): Promise<any> 
     }
   }
 
-  // Fetch missing segments in batches
+  // Fetch missing segments in batches using atomic fetching
   for (const missingSegment of missingSegments) {
     try {
-      const segmentRoute = await fetchRouteFromOSRM([missingSegment.from, missingSegment.to]);
+      // Use atomic fetch - this will deduplicate concurrent requests for the same segment
+      const segmentRoute = await fetchRouteFromOSRMAtomic([missingSegment.from, missingSegment.to]);
       
       // Cache the segment
       const segmentKey = generateSegmentKey(missingSegment.from, missingSegment.to);
@@ -189,10 +554,13 @@ async function getIncrementalRoute(waypoints: [number, number][]): Promise<any> 
   return combinedRoute;
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, url }) => {
   try {
+    // Clean up expired pending requests periodically
+    cleanupExpiredPendingRequests();
+    
     const body = await request.json();
-    const { waypoints } = body;
+    const { waypoints, stream = false } = body;
 
     if (!waypoints || !Array.isArray(waypoints)) {
       return json({ error: 'Invalid waypoints provided' }, { status: 400 });
@@ -213,19 +581,55 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ error: 'Too many waypoints (max 100)' }, { status: 400 });
     }
 
-    // Get route using incremental caching
-    const route = await getIncrementalRoute(validWaypoints);
+    // Check if streaming is requested
+    if (stream) {
+      const { stream: readableStream, writeData, close, isStreamClosed } = createStreamingResponse();
 
-    if (!route) {
-      return json({ error: 'Failed to generate route' }, { status: 500 });
+      // Start atomic streaming in the background
+      streamIncrementalRouteAtomic(validWaypoints, writeData, isStreamClosed)
+        .finally(() => {
+          // Always try to close the stream when done
+          if (!isStreamClosed()) {
+            close();
+          }
+        })
+        .catch(error => {
+          console.error('Streaming error:', error);
+          // Only try to write error if stream is still open
+          if (!isStreamClosed()) {
+            const success = writeData({
+              type: 'error',
+              message: error instanceof Error ? error.message : 'Internal server error'
+            });
+            if (success) {
+              close();
+            }
+          }
+        });
+
+      return new Response(readableStream, {
+        headers: {
+          'Content-Type': 'application/x-ndjson',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no' // Disable nginx buffering for immediate streaming
+        }
+      });
+    } else {
+      // Non-streaming mode - use atomic version
+      const route = await getIncrementalRouteAtomic(validWaypoints);
+
+      if (!route) {
+        return json({ error: 'Failed to generate route' }, { status: 500 });
+      }
+
+      return json({
+        success: true,
+        route,
+        cached: true,
+        waypoints: validWaypoints.length
+      });
     }
-
-    return json({
-      success: true,
-      route,
-      cached: true, // Always true since we use caching
-      waypoints: validWaypoints.length
-    });
 
   } catch (error) {
     console.error('Routing API error:', error);
@@ -236,7 +640,10 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const GET: RequestHandler = async () => {
-  // Return cache statistics
+  // Clean up expired pending requests
+  cleanupExpiredPendingRequests();
+  
+  // Return cache statistics including pending requests
   const now = Date.now();
   const validRouteCache = Array.from(routeCache.entries()).filter(([_, cache]) => 
     isCacheValid(cache.timestamp)
@@ -252,7 +659,11 @@ export const GET: RequestHandler = async () => {
       validRoutesInCache: validRouteCache,
       totalSegmentsInCache: segmentCache.size,
       validSegmentsInCache: validSegmentCache,
-      cacheTTL: CACHE_TTL
+      pendingFullRoutes: pendingFullRoutes.size,
+      pendingSegments: pendingSegments.size,
+      pendingStreams: pendingStreams.size,
+      cacheTTL: CACHE_TTL,
+      pendingRequestTTL: PENDING_REQUEST_TTL
     }
   });
 };
@@ -279,9 +690,21 @@ export const DELETE: RequestHandler = async () => {
     }
   }
 
+  // Clean up all pending requests
+  const pendingRoutesCleared = pendingFullRoutes.size;
+  const pendingSegmentsCleared = pendingSegments.size;
+  const pendingStreamsCleared = pendingStreams.size;
+  
+  pendingFullRoutes.clear();
+  pendingSegments.clear();
+  pendingStreams.clear();
+
   return json({
     message: 'Cache cleanup completed',
     deletedRoutes,
-    deletedSegments
+    deletedSegments,
+    pendingRoutesCleared,
+    pendingSegmentsCleared,
+    pendingStreamsCleared
   });
 };
