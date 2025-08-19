@@ -19,7 +19,7 @@
 	export let deviceInfo = {
 		id: 'ESP32-Alpha',
 		saint: "Sant\'Antonio per le campagne",
-		saintSub: 'Giorno 1',
+		saintSub: 'Giorno 4',
 		location: 'Montefalcione',
 		status: 'Online',
 		lastUpdate: '2 min. fa'

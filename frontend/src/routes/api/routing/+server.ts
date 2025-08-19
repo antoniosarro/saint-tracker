@@ -1,6 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
+const FETCH_TIMEOUT = 10000; // 10 seconds
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 1000; // 1 second
+
 interface CachedRoute {
   waypoints: [number, number][];
   route: any;
@@ -98,7 +102,7 @@ async function fetchRouteFromOSRMAtomic(waypoints: [number, number][]): Promise<
     return existingPending.promise;
   }
   
-  // Create new request
+  // Create new request with retry logic
   const coordinates = waypoints
     .map(([lat, lng]) => `${lng},${lat}`)
     .join(';');
@@ -107,23 +111,7 @@ async function fetchRouteFromOSRMAtomic(waypoints: [number, number][]): Promise<
   
   console.log(`Creating new OSRM request for: ${waypoints.length} waypoints`);
   
-  const promise = fetch(url, {
-    headers: {
-      'User-Agent': 'Saint-Tracker/1.0'
-    }
-  }).then(async (response) => {
-    if (!response.ok) {
-      throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    
-    if (data.code !== 'Ok') {
-      throw new Error(`OSRM routing error: ${data.code} - ${data.message || 'Unknown error'}`);
-    }
-
-    return data;
-  }).finally(() => {
+  const promise = fetchWithRetry(url, MAX_RETRIES).finally(() => {
     // Clean up pending request when done
     pendingSegments.delete(key);
   });
@@ -135,6 +123,55 @@ async function fetchRouteFromOSRMAtomic(waypoints: [number, number][]): Promise<
   });
   
   return promise;
+}
+
+async function fetchWithRetry(url: string, retries: number): Promise<any> {
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      console.log(`Attempt ${attempt} for URL: ${url.substring(0, 100)}...`);
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Saint-Tracker/1.0'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`OSRM API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.code !== 'Ok') {
+        throw new Error(`OSRM routing error: ${data.code} - ${data.message || 'Unknown error'}`);
+      }
+
+      console.log(`Successfully fetched route on attempt ${attempt}`);
+      return data;
+      
+    } catch (error) {
+      console.warn(`Fetch attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
+      
+      // If this was the last attempt, throw the error
+      if (attempt === retries + 1) {
+        console.error(`All ${retries + 1} attempts failed for segment`);
+        throw error;
+      }
+      
+      // Wait before retrying
+      if (attempt <= retries) {
+        console.log(`Waiting ${RETRY_DELAY}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
+    }
+  }
 }
 
 // Helper function to create streaming response
@@ -307,6 +344,8 @@ async function performStreamIncrementalRoute(
     })) return;
   }
 
+  const failedSegments: number[] = [];
+  
   // Fetch missing segments and stream them as they arrive
   for (const missingSegment of missingSegments) {
     if (isStreamClosed()) {
@@ -321,7 +360,7 @@ async function performStreamIncrementalRoute(
         currentSegment: missingSegment.index + 1
       })) return;
 
-      // Use atomic fetch - this will deduplicate concurrent requests for the same segment
+      // Use atomic fetch with improved error handling
       const segmentRoute = await fetchRouteFromOSRMAtomic([missingSegment.from, missingSegment.to]);
       
       if (isStreamClosed()) {
@@ -354,15 +393,22 @@ async function performStreamIncrementalRoute(
       
       // Small delay to avoid overwhelming OSRM
       await new Promise(resolve => setTimeout(resolve, 100));
+      
     } catch (error) {
       console.error(`Failed to fetch segment ${missingSegment.index}:`, error);
+      failedSegments.push(missingSegment.index);
       
-      if (!writeData({
-        type: 'error',
+      // Send error information but continue with other segments
+      writeData({
+        type: 'segment_error',
         message: `Failed to fetch segment ${missingSegment.index + 1}`,
         error: error instanceof Error ? error.message : 'Unknown error',
-        segmentIndex: missingSegment.index
-      })) return;
+        segmentIndex: missingSegment.index,
+        willContinue: true
+      });
+      
+      // Continue processing other segments instead of stopping
+      continue;
     }
   }
 
@@ -377,15 +423,25 @@ async function performStreamIncrementalRoute(
   if (validSegments.length === 0) {
     writeData({
       type: 'error',
-      message: 'No valid route segments available'
+      message: 'No valid route segments available - all segments failed to fetch'
     });
     return;
   }
 
-  // Combine all segments and send final result
+  // If we have some segments but some failed, create a partial route
+  if (failedSegments.length > 0) {
+    writeData({
+      type: 'warning',
+      message: `Route created with ${failedSegments.length} missing segments`,
+      failedSegments: failedSegments,
+      successfulSegments: validSegments.length
+    });
+  }
+
+  // Combine all valid segments and send final result
   const combinedRoute = combineRoutes(validSegments);
 
-  // Cache the full route
+  // Cache the full route even if partial
   if (combinedRoute) {
     routeCache.set(fullRouteKey, {
       waypoints: [...waypoints],
@@ -401,12 +457,13 @@ async function performStreamIncrementalRoute(
     stats: {
       totalSegments: waypoints.length - 1,
       validSegments: validSegments.length,
-      fetchedSegments: missingSegments.length,
-      cachedSegments: validSegments.length - missingSegments.length
+      fetchedSegments: missingSegments.length - failedSegments.length,
+      cachedSegments: validSegments.length - (missingSegments.length - failedSegments.length),
+      failedSegments: failedSegments.length
     }
   });
 
-  console.log(`Built route from ${validSegments.length} segments (${missingSegments.length} fetched, ${validSegments.length - missingSegments.length} cached)`);
+  console.log(`Built route from ${validSegments.length} segments (${missingSegments.length - failedSegments.length} fetched, ${validSegments.length - (missingSegments.length - failedSegments.length)} cached, ${failedSegments.length} failed)`);
 }
 
 function combineRoutes(routes: any[]): any {
@@ -505,10 +562,12 @@ async function performGetIncrementalRoute(waypoints: [number, number][]): Promis
     }
   }
 
-  // Fetch missing segments in batches using atomic fetching
+  // Fetch missing segments in batches using atomic fetching with improved error handling
+  const failedSegments: number[] = [];
+  
   for (const missingSegment of missingSegments) {
     try {
-      // Use atomic fetch - this will deduplicate concurrent requests for the same segment
+      // Use atomic fetch with retry logic
       const segmentRoute = await fetchRouteFromOSRMAtomic([missingSegment.from, missingSegment.to]);
       
       // Cache the segment
@@ -526,7 +585,8 @@ async function performGetIncrementalRoute(waypoints: [number, number][]): Promis
       await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
       console.error(`Failed to fetch segment ${missingSegment.index}:`, error);
-      // Continue with other segments
+      failedSegments.push(missingSegment.index);
+      // Continue with other segments instead of throwing
     }
   }
 
@@ -534,13 +594,18 @@ async function performGetIncrementalRoute(waypoints: [number, number][]): Promis
   const validSegments = segments.filter(segment => segment !== undefined);
 
   if (validSegments.length === 0) {
-    throw new Error('No valid route segments available');
+    throw new Error('No valid route segments available - all segments failed to fetch');
   }
 
-  // Combine all segments
+  // Log if we have partial results
+  if (failedSegments.length > 0) {
+    console.warn(`Created partial route: ${validSegments.length} successful segments, ${failedSegments.length} failed segments`);
+  }
+
+  // Combine all valid segments
   const combinedRoute = combineRoutes(validSegments);
 
-  // Cache the full route
+  // Cache the full route even if partial
   if (combinedRoute) {
     routeCache.set(fullRouteKey, {
       waypoints: [...waypoints],
@@ -549,7 +614,7 @@ async function performGetIncrementalRoute(waypoints: [number, number][]): Promis
     });
   }
 
-  console.log(`Built route from ${validSegments.length} segments (${missingSegments.length} fetched, ${validSegments.length - missingSegments.length} cached)`);
+  console.log(`Built route from ${validSegments.length} segments (${missingSegments.length - failedSegments.length} fetched, ${validSegments.length - (missingSegments.length - failedSegments.length)} cached, ${failedSegments.length} failed)`);
   
   return combinedRoute;
 }

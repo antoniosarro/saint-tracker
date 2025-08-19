@@ -21,8 +21,12 @@
 <header class="shadow-md">
 	<nav class="container mx-auto flex h-16 items-center justify-between px-6 py-4">
 		<!-- Logo -->
-		<a href="/" class="text-xl font-bold text-gray-800 transition-colors hover:text-blue-600">
-			Saint Tracker
+		<a
+			href="/"
+			class="flex items-center justify-center gap-1 text-xl font-bold text-gray-800 transition-colors hover:text-blue-600"
+		>
+			<span>Saint Tracker</span>
+			<img src="logo.png" alt="Saint Tracker Logo" class="h-7 w-7 mb-2 object-contain" />
 		</a>
 
 		<!-- Navigation Links (Desktop) -->
